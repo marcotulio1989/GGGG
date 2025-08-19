@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedural Island Generator</title>
+    <link rel="stylesheet" href="index.css">
+    <!-- Import maps polyfill -->
+    <!-- Remove this when import maps will be widely supported -->
+    <script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai",
+    "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/",
+    "three/": "https://esm.sh/three@^0.165.0/",
+    "path": "https://esm.sh/path@^0.12.7",
+    "url": "https://esm.sh/url@^0.11.4",
+    "vite": "https://esm.sh/vite@^7.1.2"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <div id="app">
+        <canvas id="c"></canvas>
+        <div class="controls">
+            <h1>Island Generator</h1>
+            <p>Upload FBX or OBJ rock models, then adjust the settings manually to create your island.</p>
+            
+            <div class="axis-legend">
+                <p><span class="color-dot red"></span> X-Axis</p>
+                <p><span class="color-dot green"></span> Y-Axis (Up)</p>
+                <p><span class="color-dot blue"></span> Z-Axis</p>
+            </div>
+
+            <div class="input-group">
+                <label for="rock-model-input">Select Rock Models (.fbx, .obj)</label>
+                <input type="file" id="rock-model-input" accept=".fbx,.obj" multiple aria-label="Upload rock models">
+            </div>
+            <div id="file-count">No files selected.</div>
+            <button id="generate-button" disabled>Generate Island</button>
+
+            <div class="options-group">
+                <div class="option-item">
+                    <label for="island-radius-input">Island Radius</label>
+                    <input type="number" class="number-input" id="island-radius-input" value="65" min="10" max="200" step="1">
+                </div>
+                <div class="option-item">
+                    <label for="shoreline-offset-input">Shoreline Offset</label>
+                    <input type="number" class="number-input" id="shoreline-offset-input" value="1" min="1" max="20" step="1">
+                </div>
+                <div class="option-item">
+                    <label for="contour-height-input">Base Height</label>
+                    <input type="number" class="number-input" id="contour-height-input" value="8" min="-20" max="20" step="0.5">
+                </div>
+                <div class="option-item">
+                    <label for="shoreline-height-input">Shoreline Height</label>
+                    <input type="number" class="number-input" id="shoreline-height-input" value="8" min="-10" max="10" step="0.5">
+                </div>
+                <div class="option-item">
+                    <label for="noise-strength-input">Surface Noise Strength</label>
+                    <input type="number" class="number-input" id="noise-strength-input" value="1.5" min="0" max="10" step="0.1">
+                </div>
+                <div class="option-item">
+                    <label for="noise-scale-input">Surface Noise Scale</label>
+                    <input type="number" class="number-input" id="noise-scale-input" value="0.05" min="0.01" max="0.5" step="0.005">
+                </div>
+                <div class="option-item">
+                    <label for="surface-smoothing-input">Surface Smoothing</label>
+                    <input type="number" class="number-input" id="surface-smoothing-input" value="2" min="0" max="10" step="1">
+                </div>
+                <div class="option-item">
+                    <label for="rock-height-scale-input">Rock Height Scale</label>
+                    <input type="number" class="number-input" id="rock-height-scale-input" value="1.0" min="0.1" max="2" step="0.05">
+                </div>
+            </div>
+
+            <details class="texture-options" open>
+                <summary>Mud Puddles</summary>
+                 <div class="texture-group">
+                    <div class="option-item">
+                        <label for="mud-puddle-radius-input">Puddle Radius</label>
+                        <input type="number" class="number-input" id="mud-puddle-radius-input" value="14" min="1" max="15" step="0.5">
+                    </div>
+                    <div class="input-group" style="display: flex; gap: 10px; margin-top: 1rem;">
+                        <button id="add-mud-puddle-button" style="flex: 1;">Add Mud Puddle</button>
+                        <button id="delete-mud-puddle-button" style="flex: 1;">Delete Last</button>
+                    </div>
+                </div>
+            </details>
+            
+            <details class="texture-options" open>
+                <summary>Paths</summary>
+                 <div class="texture-group">
+                    <div class="option-item">
+                        <label for="path-toggle-input">Enable Path Generation</label>
+                        <input type="checkbox" id="path-toggle-input" checked>
+                    </div>
+                    <div class="option-item">
+                        <label for="path-points-input">Number of Points</label>
+                        <input type="number" class="number-input" id="path-points-input" value="40" min="3" max="100" step="1">
+                    </div>
+                    <div class="option-item">
+                        <label for="path-looping-input">Path Looping (%)</label>
+                        <input type="number" class="number-input" id="path-looping-input" value="2" min="0" max="100" step="1">
+                    </div>
+                    <div class="option-item">
+                        <label for="path-width-input">Path Width</label>
+                        <input type="number" class="number-input" id="path-width-input" value="0.5" min="0.1" max="5" step="0.1">
+                    </div>
+                    <div class="input-group" style="margin-top: 1rem;">
+                        <button id="generate-path-button" disabled>Generate Paths</button>
+                    </div>
+                </div>
+            </details>
+
+            <details class="texture-options" open>
+                <summary>Water Features</summary>
+                 <div class="texture-group">
+                    <div class="option-item">
+                        <label for="water-features-toggle">Enable Water Features</label>
+                        <input type="checkbox" id="water-features-toggle" checked>
+                    </div>
+                    <div class="option-item">
+                        <label for="lake-radius-input">Next Lake Radius</label>
+                        <input type="number" class="number-input" id="lake-radius-input" value="12" min="5" max="30" step="1">
+                    </div>
+                    <div class="option-item">
+                        <label for="lake-depth-input">Next Lake Depth</label>
+                        <input type="number" class="number-input" id="lake-depth-input" value="3" min="1" max="10" step="0.5">
+                    </div>
+                    <div class="input-group" style="display: flex; gap: 10px; margin-top: 1rem;">
+                        <button id="add-lake-button" style="flex: 1;">Add Lake</button>
+                        <button id="delete-lake-button" style="flex: 1;">Delete Last Lake</button>
+                    </div>
+                </div>
+            </details>
+
+            <details class="texture-options" open>
+                <summary>Foliage</summary>
+                <div class="texture-group">
+                    <h3>Models</h3>
+                    <div class="input-group">
+                        <button type="button" id="foliage-model-button" class="upload-set-button">Upload Foliage Models</button>
+                        <input type="file" id="foliage-model-input" class="file-input-hidden" accept=".fbx,.obj" multiple aria-label="Upload foliage models">
+                    </div>
+                    <div id="foliage-file-count">No files selected.</div>
+                    
+                    <div class="option-item">
+                        <label for="foliage-band-width-input">Foliage Band Width</label>
+                        <div class="slider-container">
+                            <input type="range" id="foliage-band-width-input" value="3.5" min="0" max="50" step="0.5">
+                            <span id="foliage-band-width-value" class="value-display">3.5</span>
+                        </div>
+                    </div>
+                    <div class="option-item">
+                        <label for="foliage-density-input">Foliage Density</label>
+                        <input type="number" class="number-input" id="foliage-density-input" value="100" min="0" max="500" step="10">
+                    </div>
+                    <div class="option-item">
+                        <label for="max-foliage-count-input">Max Foliage Count</label>
+                        <input type="number" id="max-foliage-count-input" class="number-input" value="10" min="0" step="10" placeholder="Unlimited">
+                    </div>
+                     <div class="option-item">
+                        <label for="max-foliage-slope-input">Max Foliage Slope (°)</label>
+                        <input type="number" class="number-input" id="max-foliage-slope-input" value="45" min="0" max="90" step="1">
+                    </div>
+                    <div class="option-item">
+                        <label for="foliage-scale-input">Foliage Scale</label>
+                        <input type="number" class="number-input" id="foliage-scale-input" value="0.15" min="0.05" max="2.0" step="0.01">
+                    </div>
+                </div>
+            </details>
+
+            <details class="texture-options" open>
+                <summary>PBR Textures</summary>
+                <div class="texture-group">
+                    <h3>Ground Cover</h3>
+                    <div class="input-group">
+                        <button type="button" id="ground-cover-set-button" class="upload-set-button">Upload Texture Set</button>
+                        <input type="file" id="ground-cover-set-input" class="file-input-hidden" accept="image/*" multiple>
+                    </div>
+                    <div class="texture-map-display">
+                        <div class="texture-map-row">
+                            <label>Albedo</label>
+                            <span class="file-name" id="ground-cover-albedo-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Normal</label>
+                            <span class="file-name" id="ground-cover-normal-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Roughness</label>
+                            <span class="file-name" id="ground-cover-roughness-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>AO</label>
+                            <span class="file-name" id="ground-cover-ao-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Displacement</label>
+                            <span class="file-name" id="ground-cover-displacement-filename">No file chosen</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="texture-group">
+                    <h3>Grass Material</h3>
+                    <div class="input-group">
+                        <button type="button" id="grass-set-button" class="upload-set-button">Upload Texture Set</button>
+                        <input type="file" id="grass-set-input" class="file-input-hidden" accept="image/*" multiple>
+                    </div>
+                    <div class="texture-map-display">
+                        <div class="texture-map-row">
+                            <label>Albedo</label>
+                            <span class="file-name" id="grass-albedo-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Normal</label>
+                            <span class="file-name" id="grass-normal-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Roughness</label>
+                            <span class="file-name" id="grass-roughness-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>AO</label>
+                            <span class="file-name" id="grass-ao-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Displacement</label>
+                            <span class="file-name" id="grass-displacement-filename">No file chosen</span>
+                        </div>
+                    </div>
+                </div>
+                 <div class="texture-group">
+                    <h3>Mud Material</h3>
+                    <div class="input-group">
+                        <button type="button" id="mud-set-button" class="upload-set-button">Upload Texture Set</button>
+                        <input type="file" id="mud-set-input" class="file-input-hidden" accept="image/*" multiple>
+                    </div>
+                    <div class="texture-map-display">
+                        <div class="texture-map-row">
+                            <label>Albedo</label>
+                            <span class="file-name" id="mud-albedo-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Normal</label>
+                            <span class="file-name" id="mud-normal-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Roughness</label>
+                            <span class="file-name" id="mud-roughness-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>AO</label>
+                            <span class="file-name" id="mud-ao-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Displacement</label>
+                            <span class="file-name" id="mud-displacement-filename">No file chosen</span>
+                        </div>
+                    </div>
+                </div>
+                 <div class="texture-group">
+                    <h3>Cobblestone Path</h3>
+                    <div class="input-group">
+                        <button type="button" id="path-set-button" class="upload-set-button">Upload Texture Set</button>
+                        <input type="file" id="path-set-input" class="file-input-hidden" accept="image/*" multiple>
+                    </div>
+                    <div class="texture-map-display">
+                        <div class="texture-map-row">
+                            <label>Albedo</label>
+                            <span class="file-name" id="path-albedo-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Normal</label>
+                            <span class="file-name" id="path-normal-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Roughness</label>
+                            <span class="file-name" id="path-roughness-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>AO</label>
+                            <span class="file-name" id="path-ao-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Displacement</label>
+                            <span class="file-name" id="path-displacement-filename">No file chosen</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="texture-group">
+                    <h3>Rock Material</h3>
+                    <div class="input-group">
+                        <button type="button" id="rock-set-button" class="upload-set-button">Upload Texture Set</button>
+                        <input type="file" id="rock-set-input" class="file-input-hidden" accept="image/*" multiple>
+                    </div>
+                    <div class="texture-map-display">
+                        <div class="texture-map-row">
+                            <label>Albedo</label>
+                            <span class="file-name" id="rock-albedo-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Normal</label>
+                            <span class="file-name" id="rock-normal-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Roughness</label>
+                            <span class="file-name" id="rock-roughness-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>AO</label>
+                            <span class="file-name" id="rock-ao-filename">No file chosen</span>
+                        </div>
+                        <div class="texture-map-row">
+                            <label>Displacement</label>
+                            <span class="file-name" id="rock-displacement-filename">No file chosen</span>
+                        </div>
+                    </div>
+                </div>
+            </details>
+            
+            <details class="texture-options" open>
+                <summary>Visualizations</summary>
+                <div class="options-group" style="border-top: none; padding-top: 0; margin-top: 0;">
+                    <div class="option-item">
+                        <label for="show-outer-shoreline-input">Show Outer Shoreline (Red)</label>
+                        <input type="checkbox" id="show-outer-shoreline-input" checked>
+                    </div>
+                    <div class="option-item">
+                        <label for="show-cliff-edge-input">Show Cliff Edge (Cyan)</label>
+                        <input type="checkbox" id="show-cliff-edge-input" checked>
+                    </div>
+                    <div class="option-item">
+                        <label for="show-foliage-boundary-input">Show Foliage Boundary (Green)</label>
+                        <input type="checkbox" id="show-foliage-boundary-input" checked>
+                    </div>
+                </div>
+            </details>
+
+            <details class="texture-options">
+                <summary>Foliage Pivot Coordinates</summary>
+                <div class="texture-group">
+                    <pre id="foliage-coordinates-list">No data yet. Click "Generate Island".</pre>
+                </div>
+            </details>
+
+        </div>
+        <div id="loading-overlay">
+            <div class="spinner"></div>
+            <p>Generating Island...</p>
+        </div>
+    </div>
+    <script type="module" src="index.tsx"></script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>
